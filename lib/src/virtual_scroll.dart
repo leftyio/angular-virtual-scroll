@@ -6,91 +6,361 @@ import 'dart:math' as Math;
 import 'package:angular/angular.dart';
 
 @Component(
-  selector: 'virtual-scroll',
-  styleUrls: const ["virtual_scroll.css"],
-  templateUrl: "virtual_scroll.html",
-)
-class VirtualScrollComponent implements OnInit, OnDestroy {
+    selector: 'virtual-scroll',
+    styleUrls: const ["virtual_scroll.css"],
+    templateUrl: "virtual_scroll.html",
+    host: const {
+      '[style.overflow-y]': "parentScroll != null ? 'hidden' : 'auto'"
+    },
+    preserveWhitespace: false,
+    directives: const [COMMON_DIRECTIVES])
+class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
+  // Streams
+  //////////
   final _update = new StreamController<List>();
+  final _changeController = new StreamController<ChangeEvent>();
+  final _startController = new StreamController<ChangeEvent>();
+  final _endController = new StreamController<ChangeEvent>();
   StreamSubscription<Event> _resizeSubscription;
   StreamSubscription<Event> _scrollSubscription;
 
-  List _items = [];
-  List get items => _items;
+  // Outputs
+  //////////
+  @Output()
+  Stream<ChangeEvent> get change => _changeController.stream;
 
-  @Input()
-  set items(List values) {
-    _items = values;
-    _itemHeight = 1;
-    _previousStart = _previousEnd = null;
-    _startup = true;
-    _refresh();
-  }
+  @Output()
+  Stream<ChangeEvent> get start => _startController.stream;
+
+  @Output()
+  Stream<ChangeEvent> get end => _endController.stream;
 
   @Output()
   Stream<List> get update => _update.stream;
 
-  @ViewChild('padding')
-  ElementRef paddingElementRef;
+  // Inputs
+  /////////
+  @Input()
+  List items = [];
 
-  @ViewChild('content')
+  @Input()
+  int scrollbarWidth;
+
+  @Input()
+  int scrollbarHeight;
+
+  @Input()
+  int childWidth;
+
+  @Input()
+  int childHeight;
+
+  @Input()
+  int bufferAmount = 0;
+
+  @Input()
+  bool doNotCheckAngularZone = false;
+
+  @Input()
+  set parentScroll(dynamic /*Window|Element*/ el) {
+    if (_parentScroll != el) {
+      _parentScroll = el;
+      _addParentEventHandlers(el);
+    }
+  }
+
+  // ViewChilds
+  /////////////
+  @ViewChild('shim', read: ElementRef)
+  ElementRef shimElementRef;
+
+  @ViewChild('content', read: ElementRef)
   ElementRef contentElementRef;
 
-  int topPadding = 0;
-  int scrollHeight = 0;
+  @ContentChild('container')
+  ElementRef containerElementRef;
 
-  int _itemHeight = 1;
+  // Public
+  //////////
+  dynamic /*Window|Element*/ get parentScroll => _parentScroll;
+  List viewPortItems = [];
+
+  // Private
+  //////////
   int _previousStart;
   int _previousEnd;
-  bool _startup = true;
+  bool _startupLoop = true;
+  dynamic currentTween;
+  dynamic /*Window|Element*/ _parentScroll;
+  int _lastScrollHeight = -1;
+  int _lastTopPadding = -1;
 
-  final HtmlElement el;
+  // Providers
+  ////////////
+  final HtmlElement element;
+  final NgZone zone;
 
-  VirtualScrollComponent(this.el);
+  VirtualScrollComponent(this.element, this.zone);
 
+  // Methods
+  //////////
+  @override
   void ngOnInit() {
-    _resizeSubscription = el.onResize.listen((_) => _refresh());
-    _scrollSubscription = el.onScroll.listen((_) => _refresh());
+    scrollbarWidth =
+        0; // this.element.nativeElement.offsetWidth - this.element.nativeElement.clientWidth;
+    scrollbarHeight =
+        0; // this.element.nativeElement.offsetHeight - this.element.nativeElement.clientHeight;
+
+    if (_parentScroll == null) {
+      _addParentEventHandlers(element);
+    }
   }
 
+  @override
   void ngOnDestroy() {
     _update.close();
-    _resizeSubscription?.cancel();
-    _scrollSubscription?.cancel();
+    _startController.close();
+    _endController.close();
+    _changeController.close();
+    _removeParentEventHandlers();
   }
 
-  void _refresh() {
-    window.requestAnimationFrame((num tick) {
-      if (items == null) return;
-      final content = contentElementRef.nativeElement;
-      if (content?.children?.length > 0 && _itemHeight == 1) {
-        _itemHeight = Math.max(content.children.first.clientHeight,
-            content.children.first.offsetHeight);
-        _itemHeight =
-            Math.max(_itemHeight, content.children.first.scrollHeight);
-      }
-      scrollHeight = items.length * _itemHeight;
+  @override
+  void ngOnChanges(Map<String, SimpleChange> changes) {
+    _previousStart = null;
+    _previousEnd = null;
+    final change = changes["items"] ?? new SimpleChange(null, null);
+    if (changes["items"] != null && change.previousValue == null ||
+        (change.previousValue != null &&
+            (change.previousValue as List).isEmpty)) {
+      _startupLoop = true;
+    }
+    _refresh();
+  }
 
-      final itemsPerView = Math.max(1, (el.clientHeight / _itemHeight).ceil());
-      final topItemIndex = items.length * el.scrollTop / scrollHeight;
-      final end =
-          Math.min(topItemIndex.ceil() + itemsPerView + 1, items.length);
-      final maxStart = Math.max(0, end - itemsPerView - 1);
-      final start = Math.min(maxStart, topItemIndex.floor());
-      topPadding = _itemHeight * start;
+  void _refresh({bool forceViewportUpdate: false}) {
+    zone.runOutsideAngular(() => window.requestAnimationFrame(
+        (_) => _calculateItems(forceViewportUpdate: forceViewportUpdate)));
+  }
 
-      if (start != _previousStart || end != _previousEnd) {
-        _update.add(this
-            .items
-            .sublist(start, end)); // (update)="yourViewPortItems=\$event"
-        _previousStart = start;
-        _previousEnd = end;
-        if (_startup) {
-          _startup = false;
-          _refresh(); // To scroll smoothly at the first time.
+  void _calculateItems({bool forceViewportUpdate: false}) {
+    if (!doNotCheckAngularZone) {
+      NgZone.assertNotInAngularZone();
+    }
+    final el = parentScroll is Window ? document.body : parentScroll ?? element;
+
+    final d = _calculateDimensions();
+    final its = items ?? [];
+    final offsetTop = _getElementsOffset();
+    var elScrollTop = parentScroll is Window
+        ? (window.pageYOffset ??
+            document.documentElement.scrollTop ??
+            document.body.scrollTop ??
+            0)
+        : el.scrollTop;
+
+    if (elScrollTop > d.scrollHeight) {
+      elScrollTop = d.scrollHeight + offsetTop;
+    }
+
+    final scrollTop = Math.max<int>(0, elScrollTop - offsetTop);
+    final indexByScrollTop =
+        scrollTop / d.scrollHeight * d.itemCount / d.itemsPerRow;
+    var endIndex = Math.min<int>(
+        d.itemCount,
+        indexByScrollTop.ceil() * d.itemsPerRow +
+            d.itemsPerRow * (d.itemsPerCol + 1));
+
+    var maxStartEnd = endIndex;
+    final modEnd = endIndex % d.itemsPerRow;
+    if (modEnd != 0) {
+      maxStartEnd = endIndex + d.itemsPerRow - modEnd;
+    }
+    final maxStart = Math.max<int>(
+        0, maxStartEnd - d.itemsPerCol * d.itemsPerRow - d.itemsPerRow);
+    int startIndex =
+        Math.min(maxStart, indexByScrollTop.floor() * d.itemsPerRow);
+
+    final topPadding = its.isEmpty
+        ? 0
+        : (d.childHeight * (startIndex / d.itemsPerRow).ceil() -
+            (d.childHeight * Math.min(startIndex, bufferAmount)));
+
+    if (topPadding != _lastTopPadding) {
+      final el = contentElementRef.nativeElement as HtmlElement;
+      el.style.transform = "translateY(${topPadding}px)";
+      _lastTopPadding = topPadding;
+    }
+
+    startIndex = !startIndex.isNaN ? startIndex : -1;
+    endIndex = !endIndex.isNaN ? endIndex : -1;
+    startIndex -= bufferAmount;
+    startIndex = Math.max(0, startIndex);
+    endIndex += bufferAmount;
+    endIndex = Math.min(its.length, endIndex);
+    if (startIndex != _previousStart ||
+        endIndex != _previousEnd ||
+        forceViewportUpdate == true) {
+      zone.run(() {
+        // update the scroll list
+        final _end = endIndex >= 0
+            ? endIndex
+            : 0; // To prevent from accidentally selecting the entire array with a negative 1 (-1) in the end position.
+        viewPortItems = its.sublist(startIndex, _end);
+        _update.add(viewPortItems);
+
+        // emit 'start' event
+        if (startIndex != _previousStart && _startupLoop == false) {
+          _startController.add(new ChangeEvent(startIndex, endIndex));
         }
-        paddingElementRef.nativeElement.focus();
-      }
-    });
+
+        // emit 'end' event
+        if (endIndex != _previousEnd && _startupLoop == false) {
+          _endController.add(new ChangeEvent(startIndex, endIndex));
+        }
+
+        _previousStart = startIndex;
+        _previousEnd = endIndex;
+
+        if (_startupLoop == true) {
+          _refresh();
+        } else {
+          _changeController.add(new ChangeEvent(startIndex, endIndex));
+        }
+      });
+    } else if (_startupLoop == true) {
+      _startupLoop = false;
+      _refresh();
+    }
   }
+
+  void _addParentEventHandlers(el) {
+    _removeParentEventHandlers();
+    if (el != null) {
+      zone.runOutsideAngular(() {
+        _scrollSubscription = el.onScroll.listen((_) => _refresh());
+        if (el is Window) {
+          _resizeSubscription = window.onResize.listen((_) => _refresh());
+        }
+      });
+    }
+  }
+
+  void _removeParentEventHandlers() {
+    _scrollSubscription?.cancel();
+    _scrollSubscription = null;
+    _resizeSubscription?.cancel();
+    _resizeSubscription = null;
+  }
+
+  void scrollInto(item) {
+    final index = (items ?? []).indexOf(item);
+    if (index < 0 || index >= (items ?? []).length) return;
+
+    final d = _calculateDimensions();
+    final scrollTop = ((index / d.itemsPerRow).floor() * d.childHeight) -
+        (d.childHeight * Math.min(index, bufferAmount));
+
+    element.scrollTop = scrollTop;
+  }
+
+  int _countItemsPerRow() {
+    var offsetTop;
+    var itemsPerRow;
+    final children = contentElementRef.nativeElement.children;
+    for (itemsPerRow = 0; itemsPerRow < children.length; itemsPerRow++) {
+      if (offsetTop != null && offsetTop != children[itemsPerRow].offsetTop)
+        break;
+      offsetTop = children[itemsPerRow].offsetTop;
+    }
+    return itemsPerRow;
+  }
+
+  int _getElementsOffset() {
+    var offsetTop = 0;
+    if (containerElementRef != null) {
+      offsetTop += containerElementRef.nativeElement.offsetTop;
+    }
+    if (parentScroll != null) {
+      offsetTop += element.offsetTop;
+    }
+    return offsetTop;
+  }
+
+  _Dimensions _calculateDimensions() {
+    final el =
+        parentScroll is Window ? document.body : (parentScroll ?? element);
+    final its = items ?? [];
+    final itemCount = its.length;
+    var viewWidth = el.clientWidth - scrollbarWidth;
+    var viewHeight = el.clientHeight - scrollbarHeight;
+
+    var contentDimensions;
+    if (childWidth == null || childHeight == null) {
+      var content = contentElementRef.nativeElement;
+      if (containerElementRef?.nativeElement != null) {
+        content = containerElementRef.nativeElement;
+      }
+      contentDimensions = content.children.isNotEmpty
+          ? content.children[0].getBoundingClientRect()
+          : new Rectangle<int>(0, 0, viewWidth, viewHeight);
+    }
+    final _childWidth = childWidth ?? contentDimensions.width;
+    final _childHeight = childHeight ?? contentDimensions.height;
+
+    var itemsPerRow = Math.max(1, _countItemsPerRow());
+    final itemsPerRowByCalc =
+        Math.max<int>(1, (viewWidth / _childWidth).floor());
+    final itemsPerCol = Math.max<int>(1, (viewHeight / _childHeight).floor());
+    int elScrollTop = parentScroll is Window
+        ? (window.pageYOffset ??
+            document.documentElement.scrollTop ??
+            document.body.scrollTop ??
+            0)
+        : el.scrollTop;
+    final scrollTop = Math.max(0, elScrollTop);
+    final scrollHeight = _childHeight * (itemCount / itemsPerRow).ceil();
+    if (itemsPerCol == 1 &&
+        (scrollTop / scrollHeight * itemCount).floor() + itemsPerRowByCalc >=
+            itemCount) {
+      itemsPerRow = itemsPerRowByCalc;
+    }
+
+    if (scrollHeight != _lastScrollHeight) {
+      (shimElementRef.nativeElement as Element)
+          .style
+          .setProperty('height', '${scrollHeight}px');
+      _lastScrollHeight = scrollHeight;
+    }
+
+    return new _Dimensions()
+      ..itemCount = itemCount
+      ..viewWidth = viewWidth
+      ..viewHeight = viewHeight
+      ..childWidth = _childWidth
+      ..childHeight = _childHeight
+      ..itemsPerRow = itemsPerRow
+      ..itemsPerCol = itemsPerCol
+      ..itemsPerRowByCalc = itemsPerRowByCalc
+      ..scrollHeight = scrollHeight;
+  }
+}
+
+class ChangeEvent {
+  final int start;
+  final int end;
+
+  ChangeEvent(this.start, this.end);
+}
+
+class _Dimensions {
+  int itemCount;
+  int viewWidth;
+  int viewHeight;
+  int childWidth;
+  int childHeight;
+  int itemsPerRow;
+  int itemsPerCol;
+  int itemsPerRowByCalc;
+  int scrollHeight;
 }

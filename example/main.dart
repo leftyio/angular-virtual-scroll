@@ -11,11 +11,14 @@ Future<Null> main() async {
     selector: "demo-app",
     template: '''
   <virtual-scroll [items]="items" (update)="viewPortItems=\$event" style="width:auto; height:75vh;">
-    <div *ngFor="let item of viewPortItems;">
-        {{item.name}} Hello.
+    <button (click)="add()">ADD</button>
+    <div #container>
+        <div *ngFor="let item of viewPortItems;">
+          Hello {{item.name}}.
+        </div>
     </div>
-</virtual-scroll>
-<button (click)="add()">ADD</button>
+  </virtual-scroll>
+
   ''',
     directives: const [VirtualScrollComponent, NgFor])
 class AppComponent {
