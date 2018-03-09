@@ -13,12 +13,9 @@ Future<Null> main() async {
   <virtual-scroll [items]="items" (update)="viewPortItems=\$event" style="width:auto; height:75vh;">
     <button (click)="add()">ADD</button>
     <div #container>
-        <div *ngFor="let item of viewPortItems;">
-          Hello {{item.name}}.
-        </div>
+        <div *ngFor="let item of viewPortItems;">Hello {{item.name}}.</div>
     </div>
   </virtual-scroll>
-
   ''',
     directives: const [VirtualScrollComponent, NgFor])
 class AppComponent {
