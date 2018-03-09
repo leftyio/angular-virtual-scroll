@@ -264,18 +264,6 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     element.scrollTop = scrollTop;
   }
 
-  num _countItemsPerRow() {
-    var offsetTop;
-    var itemsPerRow;
-    final children = contentElementRef.nativeElement.children;
-    for (itemsPerRow = 0; itemsPerRow < children.length; itemsPerRow++) {
-      if (offsetTop != null && offsetTop != children[itemsPerRow].offsetTop)
-        break;
-      offsetTop = children[itemsPerRow].offsetTop;
-    }
-    return itemsPerRow;
-  }
-
   num _getElementsOffset() {
     var offsetTop = 0;
     if (containerElementRef != null) {
@@ -318,14 +306,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
             document.body.scrollTop ??
             0)
         : el.scrollTop;
-    final scrollTop = Math.max(0, elScrollTop);
     final scrollHeight = _childHeight * (itemCount / itemsPerRow).ceil();
-    // if (itemsPerCol == 1 &&
-    //     (scrollTop / scrollHeight * itemCount).floor() + itemsPerRowByCalc >=
-    //         itemCount) {
-    //   itemsPerRow = itemsPerRowByCalc;
-    // }
-
     if (scrollHeight != _lastScrollHeight) {
       (shimElementRef.nativeElement as Element).style.height =
           '${scrollHeight}px';
@@ -340,7 +321,6 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
       ..childHeight = _childHeight
       ..itemsPerRow = itemsPerRow
       ..itemsPerCol = itemsPerCol
-  //    ..itemsPerRowByCalc = itemsPerRowByCalc
       ..scrollHeight = scrollHeight;
   }
 }
@@ -360,6 +340,5 @@ class _Dimensions {
   num childHeight;
   num itemsPerRow;
   num itemsPerCol;
-  num itemsPerRowByCalc;
   num scrollHeight;
 }
