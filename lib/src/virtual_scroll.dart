@@ -296,16 +296,9 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     final _childWidth = childWidth ?? contentDimensions.width;
     final _childHeight = childHeight ?? contentDimensions.height;
 
-    //var itemsPerRow = Math.max(1, _countItemsPerRow());
     final itemsPerRow =
         Math.max<num>(1, (viewWidth / _childWidth).floor());
     final itemsPerCol = Math.max<num>(1, (viewHeight / _childHeight).floor());
-    num elScrollTop = parentScroll is Window
-        ? (window.pageYOffset ??
-            document.documentElement.scrollTop ??
-            document.body.scrollTop ??
-            0)
-        : el.scrollTop;
     final scrollHeight = _childHeight * (itemCount / itemsPerRow).ceil();
     if (scrollHeight != _lastScrollHeight) {
       (shimElementRef.nativeElement as Element).style.height =
