@@ -6,17 +6,10 @@ environment:
   sdk: '>=1.24.0 <2.0.0'
 
 dependencies:
-  angular: ^4.0.0
+  angular: ^5.0.0-alpha+9
 
 dev_dependencies:
-  browser:
-  dart_to_js_script_rewriter:
-
-transformers:
-- angular:
-    entry_points: example/main.dart
-- dart_to_js_script_rewriter
-
-web:
-  compiler:
-    debug: dartdevc
+  build: '>=0.11.1 <0.13.0'
+  build_runner: ^0.8.1
+  build_test: ^0.10.1+1
+  build_web_compilers: ^0.3.5

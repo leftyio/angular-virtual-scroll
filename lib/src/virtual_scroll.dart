@@ -59,10 +59,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
   num bufferAmount = 0;
 
   @Input()
-  bool doNotCheckAngularZone = false;
-
-  @Input()
-  set parentScroll(dynamic /*Window|Element*/ el) {
+  set parentScroll(Element el) {
     if (_parentScroll != el) {
       _parentScroll = el;
       _addParentEventHandlers(el);
@@ -82,7 +79,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
 
   // Public
   //////////
-  dynamic /*Window|Element*/ get parentScroll => _parentScroll;
+  Element get parentScroll => _parentScroll;
   List viewPortItems = [];
 
   // Private
@@ -90,10 +87,10 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
   num _previousStart;
   num _previousEnd;
   bool _startupLoop = true;
-  dynamic currentTween;
-  dynamic /*Window|Element*/ _parentScroll;
+  Element _parentScroll;
   num _lastScrollHeight = -1;
   num _lastTopPadding = -1;
+  _Dimensions _d;
 
   // Providers
   ////////////
@@ -134,6 +131,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
         (change.previousValue != null &&
             (change.previousValue as List).isEmpty)) {
       _startupLoop = true;
+      _d = null;
     }
     _refresh();
   }
@@ -144,47 +142,39 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   void _calculateItems({bool forceViewportUpdate: false}) {
-    if (!doNotCheckAngularZone) {
-      NgZone.assertNotInAngularZone();
-    }
-    final el = parentScroll is Window ? document.body : parentScroll ?? element;
+    final el =  parentScroll ?? element;
 
-    final d = _calculateDimensions();
+    _d ??= _calculateDimensions();
     final its = items ?? [];
     final offsetTop = _getElementsOffset();
-    var elScrollTop = parentScroll is Window
-        ? (window.pageYOffset ??
-            document.documentElement.scrollTop ??
-            document.body.scrollTop ??
-            0)
-        : el.scrollTop;
+    var elScrollTop =  el.scrollTop;
 
-    if (elScrollTop > d.scrollHeight) {
-      elScrollTop = d.scrollHeight + offsetTop;
+    if (elScrollTop > _d.scrollHeight) {
+      elScrollTop = _d.scrollHeight + offsetTop;
     }
 
     final scrollTop = Math.max<num>(0, elScrollTop - offsetTop);
     final indexByScrollTop =
-        scrollTop / d.scrollHeight * d.itemCount / d.itemsPerRow;
+        scrollTop / _d.scrollHeight * _d.itemCount / _d.itemsPerRow;
     var endIndex = Math.min<num>(
-        d.itemCount,
-        indexByScrollTop.ceil() * d.itemsPerRow +
-            d.itemsPerRow * (d.itemsPerCol + 1));
+        _d.itemCount,
+        indexByScrollTop.ceil() * _d.itemsPerRow +
+            _d.itemsPerRow * (_d.itemsPerCol + 1));
 
     var maxStartEnd = endIndex;
-    final modEnd = endIndex % d.itemsPerRow;
+    final modEnd = endIndex % _d.itemsPerRow;
     if (modEnd != 0) {
-      maxStartEnd = endIndex + d.itemsPerRow - modEnd;
+      maxStartEnd = endIndex + _d.itemsPerRow - modEnd;
     }
     final maxStart = Math.max<num>(
-        0, maxStartEnd - d.itemsPerCol * d.itemsPerRow - d.itemsPerRow);
+        0, maxStartEnd - _d.itemsPerCol * _d.itemsPerRow - _d.itemsPerRow);
     num startIndex =
-        Math.min(maxStart, indexByScrollTop.floor() * d.itemsPerRow);
+        Math.min(maxStart, indexByScrollTop.floor() * _d.itemsPerRow);
 
     final topPadding = its.isEmpty
         ? 0
-        : (d.childHeight * (startIndex / d.itemsPerRow).ceil() -
-            (d.childHeight * Math.min<num>(startIndex, bufferAmount)));
+        : (_d.childHeight * (startIndex / _d.itemsPerRow).ceil() -
+            (_d.childHeight * Math.min<num>(startIndex, bufferAmount)));
 
     if (topPadding != _lastTopPadding) {
       final el = contentElementRef.nativeElement as HtmlElement;
@@ -239,9 +229,10 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     if (el != null) {
       zone.runOutsideAngular(() {
         _scrollSubscription = el.onScroll.listen((_) => _refresh());
-        if (el is Window) {
-          _resizeSubscription = window.onResize.listen((_) => _refresh());
-        }
+        _resizeSubscription = el.onResize.listen((_) {
+          _d = null;
+          _refresh();
+        });
       });
     }
   }
@@ -253,15 +244,19 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     _resizeSubscription = null;
   }
 
-  void scrollnumo(item) {
+  void scrollToIndex(int index) {
+    _d ??= _calculateDimensions();
+    final scrollTop = ((index / _d.itemsPerRow).floor() * _d.childHeight) -
+        (_d.childHeight * Math.min(index, bufferAmount));
+
+    element.scrollTop = scrollTop;
+  }
+
+  void scrollToItem(item) {
     final index = (items ?? []).indexOf(item);
     if (index < 0 || index >= (items ?? []).length) return;
 
-    final d = _calculateDimensions();
-    final scrollTop = ((index / d.itemsPerRow).floor() * d.childHeight) -
-        (d.childHeight * Math.min(index, bufferAmount));
-
-    element.scrollTop = scrollTop;
+    scrollToIndex(index);
   }
 
   num _getElementsOffset() {
@@ -275,13 +270,16 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     return offsetTop;
   }
 
+  int _getElementHeight(Element el) =>
+      el.clientHeight == 0 ? el.offsetHeight : 0;
+  int _getElementWidth(Element el) => el.clientWidth == 0 ? el.offsetWidth : 0;
+
   _Dimensions _calculateDimensions() {
-    final el =
-        parentScroll is Window ? document.body : (parentScroll ?? element);
+    final el = parentScroll ?? element;
     final its = items ?? [];
     final itemCount = its.length;
-    var viewWidth = el.clientWidth - scrollbarWidth;
-    var viewHeight = el.clientHeight - scrollbarHeight;
+    var viewWidth = _getElementWidth(el) - scrollbarWidth;
+    var viewHeight = _getElementHeight(el) - scrollbarHeight;
 
     var contentDimensions;
     if (childWidth == null || childHeight == null) {
@@ -296,8 +294,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     final _childWidth = childWidth ?? contentDimensions.width;
     final _childHeight = childHeight ?? contentDimensions.height;
 
-    final itemsPerRow =
-        Math.max<num>(1, (viewWidth / _childWidth).floor());
+    final itemsPerRow = Math.max<num>(1, (viewWidth / _childWidth).floor());
     final itemsPerCol = Math.max<num>(1, (viewHeight / _childHeight).floor());
     final scrollHeight = _childHeight * (itemCount / itemsPerRow).ceil();
     if (scrollHeight != _lastScrollHeight) {
