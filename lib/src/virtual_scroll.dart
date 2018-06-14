@@ -9,12 +9,12 @@ import 'package:angular/angular.dart';
     selector: 'virtual-scroll',
     styleUrls: const ["virtual_scroll.css"],
     templateUrl: "virtual_scroll.html",
-    host: const {
-      '[style.overflow-y]': "parentScroll != null ? 'hidden' : 'auto'"
-    },
     preserveWhitespace: false,
-    directives: const [COMMON_DIRECTIVES])
+    directives: const [coreDirectives])
 class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
+  @HostBinding('style.overflow-y')
+  String get overflowY => parentScroll != null ? 'hidden' : 'auto';
+
   // Streams
   //////////
   final _update = new StreamController<List>();
@@ -68,14 +68,14 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
 
   // ViewChilds
   /////////////
-  @ViewChild('shim', read: ElementRef)
-  ElementRef shimElementRef;
+  @ViewChild('shim')
+  Element shimElement;
 
-  @ViewChild('content', read: ElementRef)
-  ElementRef contentElementRef;
+  @ViewChild('content')
+  Element contentElement;
 
   @ContentChild('container')
-  ElementRef containerElementRef;
+  Element containerElement;
 
   // Public
   //////////
@@ -142,12 +142,12 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   void _calculateItems({bool forceViewportUpdate: false}) {
-    final el =  parentScroll ?? element;
+    final el = parentScroll ?? element;
 
     _d ??= _calculateDimensions();
     final its = items ?? [];
     final offsetTop = _getElementsOffset();
-    var elScrollTop =  el.scrollTop;
+    var elScrollTop = el.scrollTop;
 
     if (elScrollTop > _d.scrollHeight) {
       elScrollTop = _d.scrollHeight + offsetTop;
@@ -177,7 +177,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
             (_d.childHeight * Math.min<num>(startIndex, bufferAmount)));
 
     if (topPadding != _lastTopPadding) {
-      final el = contentElementRef.nativeElement as HtmlElement;
+      final el = contentElement;
       el.style.transform = "translateY(${topPadding}px)";
       _lastTopPadding = topPadding;
     }
@@ -261,8 +261,8 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
 
   num _getElementsOffset() {
     var offsetTop = 0;
-    if (containerElementRef != null) {
-      offsetTop += containerElementRef.nativeElement.offsetTop;
+    if (containerElement != null) {
+      offsetTop += containerElement.offsetTop;
     }
     if (parentScroll != null) {
       offsetTop += element.offsetTop;
@@ -272,6 +272,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
 
   int _getElementHeight(Element el) =>
       el.clientHeight == 0 ? el.offsetHeight : 0;
+
   int _getElementWidth(Element el) => el.clientWidth == 0 ? el.offsetWidth : 0;
 
   _Dimensions _calculateDimensions() {
@@ -283,9 +284,9 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
 
     var contentDimensions;
     if (childWidth == null || childHeight == null) {
-      var content = contentElementRef.nativeElement;
-      if (containerElementRef?.nativeElement != null) {
-        content = containerElementRef.nativeElement;
+      var content = contentElement;
+      if (containerElement != null) {
+        content = containerElement;
       }
       contentDimensions = content.children.isNotEmpty
           ? content.children[0].getBoundingClientRect()
@@ -298,8 +299,7 @@ class VirtualScrollComponent implements OnInit, OnChanges, OnDestroy {
     final itemsPerCol = Math.max<num>(1, (viewHeight / _childHeight).floor());
     final scrollHeight = _childHeight * (itemCount / itemsPerRow).ceil();
     if (scrollHeight != _lastScrollHeight) {
-      (shimElementRef.nativeElement as Element).style.height =
-          '${scrollHeight}px';
+      shimElement.style.height = '${scrollHeight}px';
       _lastScrollHeight = scrollHeight;
     }
 

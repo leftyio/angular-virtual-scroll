@@ -4,20 +4,17 @@ import 'package:angular/angular.dart';
 import "package:virtual_scroll/virtual_scroll.dart";
 
 Future<Null> main() async {
-  bootstrap(AppComponent);
+  bootstrapStatic(AppComponent);
 }
 
-@Component(
-    selector: "demo-app",
-    template: '''
+@Component(selector: "demo-app", template: '''
   <virtual-scroll [items]="items" (update)="viewPortItems=\$event" style="width:auto; height:75vh;">
     <button (click)="add()">ADD</button>
     <div #container>
         <div *ngFor="let item of viewPortItems;">Hello {{item.name}}.</div>
     </div>
   </virtual-scroll>
-  ''',
-    directives: const [VirtualScrollComponent, NgFor])
+  ''', directives: const [VirtualScrollComponent, NgFor])
 class AppComponent {
   List<Item> items = []; // large list.
   List<Item> viewPortItems; // partial list.
@@ -25,6 +22,7 @@ class AppComponent {
   AppComponent() {
     for (int i = 0; i < 10000; i++) items.add(new Item("Robot $i"));
   }
+
   void add() {
     items.add(new Item("New Robot"));
     items = items.toList(); // Make new list to detect changes.
@@ -33,5 +31,6 @@ class AppComponent {
 
 class Item {
   final String name;
+
   Item(this.name);
 }
