@@ -1,2 +1,3 @@
 .pub/
 .packages
+.dart_tool/

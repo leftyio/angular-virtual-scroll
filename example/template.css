@@ -1,0 +1,14 @@
+item {
+    display: inline-block;
+    line-height: 200px;
+    text-align: center;
+    border: solid 1px #efefef;
+    width: calc(20% - 16px);
+    height: 200px;
+    box-sizing: border-box;
+
+    margin: 8px;
+
+    box-shadow: 0 10px 15px 0 rgba(0,0,0,.05);
+}
+

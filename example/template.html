@@ -1,0 +1,10 @@
+<virtual-scroll [items]="items"
+                (update)="viewPortItems = $event"
+                (end)="onEnd($event)"
+                style="width:auto; height:75vh;">
+    <button (click)="add()">ADD</button>
+    <div #container>
+        <item *ngFor="let item of viewPortItems"
+              [item]="item"></item>
+    </div>
+</virtual-scroll>

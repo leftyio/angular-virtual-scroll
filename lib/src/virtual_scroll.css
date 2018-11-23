@@ -1,8 +1,14 @@
 :host {
-  overflow: hidden;
   position: relative;
   display: block;
   -webkit-overflow-scrolling: touch;
+
+  overflow-x: hidden;
+  overflow-y: auto; 
+}
+
+:host.parent-scroll {
+  overflow-y: hidden;
 }
 
 .scrollable-content {
